@@ -1,0 +1,40 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function profile() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+    function isOwner() {
+      return signedIn() && profile().active == true && (
+        profile().role == 'owner' ||
+        (profile().role == 'admin' && !profile().keys().hasAny(['permissions']))
+      );
+    }
+    function hasPerm(module, action) {
+      return isOwner() || (
+        signedIn() &&
+        profile().active == true &&
+        profile().get('permissions', {}).get(module, {}).get(action, false) == true
+      );
+    }
+    function isImage() {
+      return request.resource.contentType.matches('image/.*')
+        && request.resource.size < 2 * 1024 * 1024;
+    }
+
+    match /branding/{file} {
+      allow read: if signedIn();
+      allow create, update: if (isOwner() || hasPerm('settings', 'business')) && isImage();
+      allow delete: if isOwner() || hasPerm('settings', 'business');
+    }
+
+    match /products/{productId}/{file} {
+      allow read: if signedIn();
+      allow create, update: if (isOwner() || hasPerm('inventory', 'create') || hasPerm('inventory', 'edit')) && isImage();
+      allow delete: if isOwner() || hasPerm('inventory', 'edit');
+    }
+  }
+}

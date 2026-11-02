@@ -1,0 +1,32 @@
+#print-root { display: none; }
+.doc { color: #111; font-family: "Segoe UI", sans-serif; }
+.doc-top { display: flex; justify-content: space-between; gap: 16px; align-items: center; border-bottom: 2px solid #111; padding-bottom: 12px; }
+.doc-top img { width: 78px; height: 78px; object-fit: contain; }
+.doc-top h1 { font-size: 28px; margin: 0; }
+.doc-top p { margin: 2px 0; color: #444; }
+.doc-id { text-align: right; }
+.doc-id strong { display: block; letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
+.doc-id b { display: block; font-size: 22px; margin: 4px 0; }
+.doc-box { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0; }
+.doc-box div { border: 1px solid #ddd; border-radius: 8px; padding: 8px; }
+.doc-box span { display: block; color: #666; font-size: 11px; text-transform: uppercase; }
+.doc-table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; }
+.doc-table th, .doc-table td { border-bottom: 1px solid #ddd; padding: 7px 6px; text-align: left; font-size: 13px; }
+.doc-table th { background: #f6f3ec; }
+.doc-totals { width: 280px; margin-left: auto; }
+.doc-totals p, .doc-list li, .doc-grand-line { display: flex; justify-content: space-between; gap: 12px; }
+.doc-grand { font-size: 18px; border-top: 2px solid #111; padding-top: 6px; }
+.doc-note { color: #333; }
+.doc-sign { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 48px; }
+.doc-sign div { border-top: 1px solid #111; padding-top: 6px; text-align: center; }
+.doc-foot { margin-top: 18px; color: #666; font-size: 12px; }
+.doc-ticket { width: 72mm; font-size: 12px; }
+.doc-ticket .doc-top, .doc-ticket .doc-box, .doc-ticket .doc-sign { display: block; }
+.doc-ticket .doc-totals { width: auto; }
+
+@media print {
+  body * { visibility: hidden; }
+  #print-root, #print-root * { visibility: visible; }
+  #print-root { display: block; position: absolute; left: 0; top: 0; width: 100%; }
+  .no-print { display: none !important; }
+}

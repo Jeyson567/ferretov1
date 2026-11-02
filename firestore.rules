@@ -1,0 +1,439 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+    function userExists() {
+      return signedIn() && exists(userPath());
+    }
+    function userData() {
+      return get(userPath()).data;
+    }
+    function isActive() {
+      return userExists() && userData().active == true;
+    }
+    function isOwner() {
+      return isActive() && (
+        userData().role == 'owner' ||
+        (userData().role == 'admin' && !userData().keys().hasAny(['permissions']))
+      );
+    }
+    function hasPerm(module, action) {
+      return isOwner() || (
+        isActive() &&
+        userData().get('permissions', {}).get(module, {}).get(action, false) == true
+      );
+    }
+    function systemPath() {
+      return /databases/$(database)/documents/settings/system;
+    }
+    function notInitialized() {
+      return !exists(systemPath()) || get(systemPath()).data.initialized != true;
+    }
+    function sameKeys(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+    function stockFlagsOk() {
+      return request.resource.data.lowStock == (request.resource.data.stock <= resource.data.minStock)
+        && request.resource.data.outOfStock == (request.resource.data.stock <= 0);
+    }
+    function stockOnly() {
+      return sameKeys(['stock', 'lowStock', 'outOfStock', 'updatedAt'])
+        && request.resource.data.stock is number
+        && stockFlagsOk();
+    }
+    function canUseCounters() {
+      return isOwner()
+        || hasPerm('pos', 'create')
+        || hasPerm('quotes', 'create')
+        || hasPerm('suppliers', 'entries')
+        || hasPerm('receivables', 'abono')
+        || hasPerm('receivables', 'payFull')
+        || hasPerm('expenses', 'create')
+        || hasPerm('sales', 'returns')
+        || hasPerm('sales', 'void');
+    }
+    function canReadProducts() {
+      return isOwner() || hasPerm('inventory', 'view') || hasPerm('pos', 'access') || hasPerm('quotes', 'view') || hasPerm('reports', 'inventory');
+    }
+    function costAllowed() {
+      return isOwner() || hasPerm('inventory', 'viewCosts') || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['cost']);
+    }
+    function ownerUid() {
+      return exists(systemPath()) ? get(systemPath()).data.get('ownerUid', '') : '';
+    }
+    function canManageStaff() {
+      return isOwner() || (hasPerm('settings', 'users') && hasPerm('settings', 'permissions'));
+    }
+    function bit(module, action) {
+      return request.resource.data.get('permissions', {}).get(module, {}).get(action, false) != true
+        || isOwner()
+        || hasPerm(module, action);
+    }
+    function permissionsGranted() {
+      return request.resource.data.permissions is map
+        && request.resource.data.permissions.keys().hasOnly(['dashboard', 'inventory', 'pos', 'sales', 'customers', 'receivables', 'quotes', 'suppliers', 'expenses', 'reports', 'settings'])
+        && request.resource.data.permissions.get('dashboard', {}).keys().hasOnly(['view', 'viewStats', 'viewSales', 'viewProfits', 'viewRecent'])
+        && bit('dashboard', 'view')
+        && bit('dashboard', 'viewStats')
+        && bit('dashboard', 'viewSales')
+        && bit('dashboard', 'viewProfits')
+        && bit('dashboard', 'viewRecent')
+        && request.resource.data.permissions.get('inventory', {}).keys().hasOnly(['view', 'create', 'edit', 'delete', 'increaseStock', 'decreaseStock', 'movements', 'viewCosts', 'viewPrices'])
+        && bit('inventory', 'view')
+        && bit('inventory', 'create')
+        && bit('inventory', 'edit')
+        && bit('inventory', 'delete')
+        && bit('inventory', 'increaseStock')
+        && bit('inventory', 'decreaseStock')
+        && bit('inventory', 'movements')
+        && bit('inventory', 'viewCosts')
+        && bit('inventory', 'viewPrices')
+        && request.resource.data.permissions.get('pos', {}).keys().hasOnly(['access', 'create', 'discount', 'changePrice', 'customers', 'payments', 'credit', 'cancel'])
+        && bit('pos', 'access')
+        && bit('pos', 'create')
+        && bit('pos', 'discount')
+        && bit('pos', 'changePrice')
+        && bit('pos', 'customers')
+        && bit('pos', 'payments')
+        && bit('pos', 'credit')
+        && bit('pos', 'cancel')
+        && request.resource.data.permissions.get('sales', {}).keys().hasOnly(['view', 'detail', 'print', 'returns', 'void'])
+        && bit('sales', 'view')
+        && bit('sales', 'detail')
+        && bit('sales', 'print')
+        && bit('sales', 'returns')
+        && bit('sales', 'void')
+        && request.resource.data.permissions.get('customers', {}).keys().hasOnly(['view', 'create', 'edit', 'disable', 'history', 'balances'])
+        && bit('customers', 'view')
+        && bit('customers', 'create')
+        && bit('customers', 'edit')
+        && bit('customers', 'disable')
+        && bit('customers', 'history')
+        && bit('customers', 'balances')
+        && request.resource.data.permissions.get('receivables', {}).keys().hasOnly(['view', 'abono', 'payFull', 'dueDate', 'statement', 'print', 'whatsapp'])
+        && bit('receivables', 'view')
+        && bit('receivables', 'abono')
+        && bit('receivables', 'payFull')
+        && bit('receivables', 'dueDate')
+        && bit('receivables', 'statement')
+        && bit('receivables', 'print')
+        && bit('receivables', 'whatsapp')
+        && request.resource.data.permissions.get('quotes', {}).keys().hasOnly(['view', 'create', 'edit', 'discard', 'approve', 'convert', 'print', 'whatsapp'])
+        && bit('quotes', 'view')
+        && bit('quotes', 'create')
+        && bit('quotes', 'edit')
+        && bit('quotes', 'discard')
+        && bit('quotes', 'approve')
+        && bit('quotes', 'convert')
+        && bit('quotes', 'print')
+        && bit('quotes', 'whatsapp')
+        && request.resource.data.permissions.get('suppliers', {}).keys().hasOnly(['view', 'create', 'edit', 'disable', 'entries', 'history'])
+        && bit('suppliers', 'view')
+        && bit('suppliers', 'create')
+        && bit('suppliers', 'edit')
+        && bit('suppliers', 'disable')
+        && bit('suppliers', 'entries')
+        && bit('suppliers', 'history')
+        && request.resource.data.permissions.get('expenses', {}).keys().hasOnly(['view', 'create', 'edit', 'void', 'report'])
+        && bit('expenses', 'view')
+        && bit('expenses', 'create')
+        && bit('expenses', 'edit')
+        && bit('expenses', 'void')
+        && bit('expenses', 'report')
+        && request.resource.data.permissions.get('reports', {}).keys().hasOnly(['view', 'sales', 'profit', 'inventory', 'receivables', 'export', 'print'])
+        && bit('reports', 'view')
+        && bit('reports', 'sales')
+        && bit('reports', 'profit')
+        && bit('reports', 'inventory')
+        && bit('reports', 'receivables')
+        && bit('reports', 'export')
+        && bit('reports', 'print')
+        && request.resource.data.permissions.get('settings', {}).keys().hasOnly(['view', 'business', 'colors', 'methods', 'categories', 'units', 'users', 'permissions', 'audit'])
+        && bit('settings', 'view')
+        && bit('settings', 'business')
+        && bit('settings', 'colors')
+        && bit('settings', 'methods')
+        && bit('settings', 'categories')
+        && bit('settings', 'units')
+        && bit('settings', 'users')
+        && bit('settings', 'permissions')
+        && bit('settings', 'audit');
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isOwner() || hasPerm('settings', 'users'));
+      allow create: if (
+        signedIn()
+        && request.auth.uid == userId
+        && notInitialized()
+        && request.resource.data.role == 'owner'
+        && request.resource.data.active == true
+        && request.resource.data.email == request.auth.token.email
+      ) || (
+        canManageStaff()
+        && userId != request.auth.uid
+        && userId != ownerUid()
+        && request.resource.data.role != 'owner'
+        && (request.resource.data.role == 'employee' || (request.resource.data.role == 'admin' && isOwner()))
+        && request.resource.data.active == true
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.email is string
+        && request.resource.data.email.size() >= 5
+        && request.resource.data.email.size() <= 120
+        && request.resource.data.email.matches('.+@.+')
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'active', 'status', 'permissions', 'createdAt', 'updatedAt', 'createdBy', 'lastAccessAt'])
+        && (isOwner() || permissionsGranted())
+      );
+      allow update: if (
+        signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.active == resource.data.active
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.get('permissions', {}) == resource.data.get('permissions', {})
+        && sameKeys(['name', 'updatedAt', 'lastAccessAt'])
+      ) || (
+        canManageStaff()
+        && userId != request.auth.uid
+        && resource.data.role != 'owner'
+        && userId != ownerUid()
+        && (resource.data.role != 'admin' || isOwner())
+        && request.resource.data.role != 'owner'
+        && (request.resource.data.role == 'employee' || (request.resource.data.role == 'admin' && isOwner()))
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.active is bool
+        && request.resource.data.status == (request.resource.data.active == true ? 'active' : 'inactive')
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 80
+        && sameKeys(['name', 'role', 'active', 'status', 'permissions', 'updatedAt'])
+        && (isOwner() || permissionsGranted())
+      );
+      allow delete: if false;
+    }
+
+    match /invites/{email} {
+      allow read: if isOwner() || (signedIn() && !userExists() && email == request.auth.token.email.lower());
+      allow create, update, delete: if false;
+    }
+
+    match /settings/{docId} {
+      allow read: if isActive() || (signedIn() && notInitialized()) || (signedIn() && docId == 'system');
+      allow create: if isOwner() || hasPerm('settings', 'business') || (signedIn() && notInitialized());
+      allow update: if isOwner()
+        || hasPerm('settings', 'business')
+        || (hasPerm('settings', 'colors') && sameKeys(['themePreset', 'themePrimary', 'themeSecondary', 'updatedAt']))
+        || (signedIn() && notInitialized());
+      allow delete: if false;
+    }
+
+    match /counters/{docId} {
+      allow read, create, update: if canUseCounters() || (signedIn() && notInitialized() && isOwner());
+      allow delete: if false;
+    }
+
+    match /categories/{id} {
+      allow read: if isActive();
+      allow create, update: if isOwner() || hasPerm('settings', 'categories');
+      allow delete: if false;
+    }
+
+    match /units/{id} {
+      allow read: if isActive();
+      allow create, update: if isOwner() || hasPerm('settings', 'units');
+      allow delete: if false;
+    }
+
+    match /paymentMethods/{id} {
+      allow read: if isActive();
+      allow create, update: if isOwner() || hasPerm('settings', 'methods');
+      allow delete: if false;
+    }
+
+    match /expenseCategories/{id} {
+      allow read: if isOwner() || hasPerm('expenses', 'view') || hasPerm('expenses', 'create') || hasPerm('settings', 'categories');
+      allow create, update: if isOwner() || hasPerm('settings', 'categories');
+      allow delete: if false;
+    }
+
+    match /products/{id} {
+      allow read: if canReadProducts();
+      allow create: if (isOwner() || hasPerm('inventory', 'create'))
+        && (isOwner() || hasPerm('inventory', 'viewCosts') || request.resource.data.cost == 0);
+      allow update: if costAllowed() && (
+        ((isOwner() || hasPerm('inventory', 'edit')) && request.resource.data.stock == resource.data.stock && (request.resource.data.active == resource.data.active || hasPerm('inventory', 'delete')))
+        || ((isOwner() || hasPerm('pos', 'create') || hasPerm('inventory', 'decreaseStock')) && stockOnly() && request.resource.data.stock <= resource.data.stock)
+        || ((isOwner() || hasPerm('sales', 'returns') || hasPerm('sales', 'void') || hasPerm('inventory', 'increaseStock') || hasPerm('suppliers', 'entries')) && stockOnly() && request.resource.data.stock >= resource.data.stock)
+      );
+      allow delete: if false;
+    }
+
+    match /productCodes/{id} {
+      allow read: if canReadProducts();
+      allow create, update, delete: if isOwner() || hasPerm('inventory', 'create') || hasPerm('inventory', 'edit');
+    }
+
+    match /barcodes/{id} {
+      allow read: if canReadProducts();
+      allow create, update, delete: if isOwner() || hasPerm('inventory', 'create') || hasPerm('inventory', 'edit');
+    }
+
+    match /customers/{id} {
+      allow read: if isOwner() || hasPerm('customers', 'view') || hasPerm('receivables', 'view') || hasPerm('pos', 'customers') || hasPerm('quotes', 'view');
+      allow create: if (isOwner() || hasPerm('customers', 'create'))
+        && request.resource.data.name is string
+        && request.resource.data.balance == 0;
+      allow update: if isOwner()
+        || ((hasPerm('customers', 'edit') || hasPerm('customers', 'disable')) && customerProfile())
+        || (canTouchBalance() && sameKeys(['balance', 'updatedAt']) && request.resource.data.balance is number && request.resource.data.balance >= 0);
+      allow delete: if false;
+    }
+
+    function customerProfile() {
+      return sameKeys(['name', 'nameLower', 'nit', 'phone', 'whatsapp', 'address', 'email', 'notes', 'active', 'updatedAt'])
+        && (request.resource.data.active == resource.data.active || hasPerm('customers', 'disable') || isOwner());
+    }
+    function canTouchBalance() {
+      return hasPerm('pos', 'create') || hasPerm('receivables', 'abono') || hasPerm('receivables', 'payFull') || hasPerm('sales', 'returns') || hasPerm('sales', 'void');
+    }
+
+    match /suppliers/{id} {
+      allow read: if isOwner() || hasPerm('suppliers', 'view') || hasPerm('inventory', 'view') || hasPerm('suppliers', 'entries');
+      allow create: if isOwner() || hasPerm('suppliers', 'create');
+      allow update: if (isOwner() || hasPerm('suppliers', 'edit') || hasPerm('suppliers', 'disable'))
+        && (request.resource.data.active == resource.data.active || isOwner() || hasPerm('suppliers', 'disable'));
+      allow delete: if false;
+    }
+
+    match /sales/{id} {
+      allow read: if isOwner() || hasPerm('sales', 'view') || hasPerm('dashboard', 'viewSales') || hasPerm('dashboard', 'viewProfits') || hasPerm('dashboard', 'viewRecent') || hasPerm('reports', 'sales') || hasPerm('reports', 'profit');
+      allow create: if (isOwner() || hasPerm('pos', 'create'))
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'completed'
+        && request.resource.data.number is string
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && request.resource.data.items.size() <= 80;
+      allow update: if saleIdentity() && (
+        isOwner()
+        || hasPerm('sales', 'returns')
+        || hasPerm('sales', 'void')
+        || salePayment()
+      );
+      allow delete: if false;
+    }
+    function saleIdentity() {
+      return request.resource.data.number == resource.data.number
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.total == resource.data.total
+        && request.resource.data.customerId == resource.data.customerId;
+    }
+    function salePayment() {
+      return (hasPerm('receivables', 'abono') || hasPerm('receivables', 'payFull'))
+        && sameKeys(['paid', 'balance', 'paymentStatus', 'receipts', 'updatedAt'])
+        && request.resource.data.paid >= resource.data.paid
+        && request.resource.data.balance <= resource.data.balance
+        && request.resource.data.balance >= 0
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.total == resource.data.total;
+    }
+
+    match /quotes/{id} {
+      allow read: if isOwner() || hasPerm('quotes', 'view') || hasPerm('dashboard', 'viewStats');
+      allow create: if (isOwner() || hasPerm('quotes', 'create')) && request.resource.data.status != 'converted';
+      allow update: if resource.data.status != 'converted' && (
+        isOwner()
+        || hasPerm('quotes', 'edit')
+        || (hasPerm('quotes', 'approve') && sameKeys(['status', 'updatedAt']))
+        || (hasPerm('quotes', 'discard') && sameKeys(['status', 'updatedAt']) && request.resource.data.status == 'rejected')
+        || (hasPerm('quotes', 'whatsapp') && sameKeys(['status', 'updatedAt']) && request.resource.data.status == 'sent')
+        || (hasPerm('quotes', 'convert') && request.resource.data.status == 'converted')
+      );
+      allow delete: if false;
+    }
+
+    match /payments/{id} {
+      allow read: if isOwner() || hasPerm('sales', 'view') || hasPerm('receivables', 'view') || hasPerm('reports', 'sales') || hasPerm('reports', 'receivables') || hasPerm('reports', 'profit');
+      allow create: if request.resource.data.userId == request.auth.uid && (
+        isOwner() || hasPerm('pos', 'create') || hasPerm('receivables', 'abono') || hasPerm('receivables', 'payFull') || hasPerm('sales', 'returns') || hasPerm('sales', 'void')
+      );
+      allow update: if isOwner();
+      allow delete: if false;
+    }
+
+    match /receivables/{id} {
+      allow read: if isOwner() || hasPerm('receivables', 'view') || hasPerm('dashboard', 'viewSales') || hasPerm('reports', 'receivables');
+      allow create: if (isOwner() || hasPerm('pos', 'create'))
+        && request.resource.data.balance == request.resource.data.originalAmount
+        && request.resource.data.paidAmount == 0
+        && request.resource.data.balance > 0;
+      allow update: if request.resource.data.saleId == resource.data.saleId
+        && request.resource.data.customerId == resource.data.customerId
+        && (
+          isOwner()
+          || hasPerm('sales', 'returns')
+          || hasPerm('sales', 'void')
+          || (hasPerm('receivables', 'dueDate') && sameKeys(['dueDate', 'updatedAt']))
+          || receivablePayment()
+        );
+      allow delete: if false;
+    }
+    function receivablePayment() {
+      return (hasPerm('receivables', 'abono') || hasPerm('receivables', 'payFull'))
+        && request.resource.data.originalAmount == resource.data.originalAmount
+        && request.resource.data.paidAmount >= resource.data.paidAmount
+        && request.resource.data.balance <= resource.data.balance
+        && request.resource.data.balance >= 0
+        && request.resource.data.get('returnedCredit', 0) == resource.data.get('returnedCredit', 0);
+    }
+
+    match /inventoryMovements/{id} {
+      allow read: if isOwner() || hasPerm('inventory', 'movements') || hasPerm('reports', 'inventory') || hasPerm('suppliers', 'history');
+      allow create: if request.resource.data.userId == request.auth.uid && (
+        isOwner()
+        || (hasPerm('inventory', 'create') && request.resource.data.type == 'initial')
+        || (hasPerm('suppliers', 'entries') && request.resource.data.type == 'entry')
+        || ((hasPerm('inventory', 'increaseStock') || hasPerm('inventory', 'decreaseStock')) && request.resource.data.type == 'adjustment')
+        || (hasPerm('pos', 'create') && request.resource.data.type == 'sale')
+        || ((hasPerm('sales', 'returns') || hasPerm('sales', 'void')) && request.resource.data.type == 'return')
+      );
+      allow update, delete: if false;
+    }
+
+    match /stockEntries/{id} {
+      allow read: if isOwner() || hasPerm('suppliers', 'entries') || hasPerm('suppliers', 'history');
+      allow create: if (isOwner() || hasPerm('suppliers', 'entries')) && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /expenses/{id} {
+      allow read: if isOwner() || hasPerm('expenses', 'view') || hasPerm('expenses', 'report') || hasPerm('reports', 'profit');
+      allow create: if (isOwner() || hasPerm('expenses', 'create')) && request.resource.data.userId == request.auth.uid && request.resource.data.amount > 0;
+      allow update: if isOwner() || hasPerm('expenses', 'edit') || hasPerm('expenses', 'void');
+      allow delete: if false;
+    }
+
+    match /auditLogs/{id} {
+      allow read: if isOwner() || hasPerm('settings', 'audit');
+      allow create: if isActive() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /idempotency/{id} {
+      allow read: if isActive() && (isOwner() || resource.data.uid == request.auth.uid);
+      allow create: if isActive() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}
