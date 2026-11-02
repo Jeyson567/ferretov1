@@ -90,12 +90,25 @@ function resolveUnit(product, unitId) {
   return { unitId: found.unitId, unitName: found.unitName, factor: roundQty(found.factor) };
 }
 
+function imageContentType(file) {
+  if (file.type?.startsWith("image/")) return file.type;
+  const name = String(file.name || "").toLowerCase();
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+  if (name.endsWith(".webp")) return "image/webp";
+  if (name.endsWith(".gif")) return "image/gif";
+  if (name.endsWith(".heic")) return "image/heic";
+  if (name.endsWith(".heif")) return "image/heif";
+  return "";
+}
+
 async function uploadImage(path, file) {
   if (!file) return "";
-  if (!file.type?.startsWith("image/")) throw new Error("Seleccione un archivo de imagen.");
+  const contentType = imageContentType(file);
+  if (!contentType) throw new Error("Seleccione una imagen PNG o JPG.");
   if (file.size > 2 * 1024 * 1024) throw new Error("La imagen debe pesar menos de 2 MB.");
   const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file, { contentType: file.type });
+  await uploadBytes(storageRef, file, { contentType });
   return getDownloadURL(storageRef);
 }
 

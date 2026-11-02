@@ -5,7 +5,7 @@ import { can, ROLE_LABELS } from "./permissions.js";
 import { renderRoute } from "./router.js";
 import { esc, errorMessage, dateKey } from "./utils.js";
 import { icon, toast } from "./ui.js";
-import { globalSearch, saveSettings } from "./operations.js";
+import { globalSearch, saveSettings } from "./operations.js?v=20261102g";
 import { collection, doc, getDocs, limit, onSnapshot, query, where } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
 import "./modules/dashboard.js";
 import "./modules/inventory.js";
@@ -113,20 +113,45 @@ function renderSetup(user) {
       <label class="field"><span>Correo del negocio</span><input name="email" type="email"></label>
       <label class="field"><span>Moneda</span><select name="currency" disabled><option value="GTQ">Quetzales (Q)</option></select></label>
       <label class="field"><span>Nota de los comprobantes</span><textarea name="ticketFooter">Gracias por su compra.</textarea></label>
-      <label class="field"><span>Logo</span><input name="logo" type="file" accept="image/*"></label>
+      <label class="field"><span>Logo</span><input name="logo" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/heic,.png,.jpg,.jpeg,.webp,.gif,.heic"></label>
       <button class="btn btn-primary" type="submit">Guardar e ingresar</button>
       ${help()}
     </form></div>`;
-  document.getElementById("setup-form").addEventListener("submit", async (event) => {
+  const form = document.getElementById("setup-form");
+  let saving = false;
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+    if (saving) return;
+    const setupForm = event.currentTarget;
+    const submit = setupForm.querySelector("[type=submit]");
+    const logoInput = setupForm.elements.namedItem("logo");
+    const logoFile = logoInput?.files?.[0] ?? null;
+    if (!setupForm.reportValidity()) return;
+    if (logoFile && !acceptedLogo(logoFile)) {
+      toast("Seleccione una imagen PNG o JPG de menos de 2 MB.", "err");
+      return;
+    }
+    const data = Object.fromEntries(new FormData(setupForm).entries());
+    delete data.logo;
+    saving = true;
+    if (submit) submit.disabled = true;
     try {
       await setupBusiness(user, data);
-      const logo = event.currentTarget.logo.files[0];
-      if (logo) await saveSettings({}, logo);
+      if (logoFile) await saveSettings({}, logoFile);
       await enter();
-    } catch (error) { toast(errorMessage(error), "err"); }
+    } catch (error) {
+      saving = false;
+      if (submit) submit.disabled = false;
+      toast(errorMessage(error), "err");
+    }
   });
+}
+
+function acceptedLogo(file) {
+  const type = String(file.type || "");
+  const name = String(file.name || "").toLowerCase();
+  const image = type.startsWith("image/") || /\.(png|jpe?g|webp|gif|heic|heif)$/.test(name);
+  return image && file.size > 0 && file.size <= 2 * 1024 * 1024;
 }
 
 function renderDenied(message, config = false) {
